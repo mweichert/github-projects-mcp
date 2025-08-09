@@ -23,5 +23,11 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/github_projects_mcp"]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+]
+
 [project.scripts]
 mcp-github-projects = "github_projects_mcp.server:main"

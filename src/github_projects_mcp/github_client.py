@@ -311,7 +311,7 @@ class GitHubClient:
             ... on ProjectV2 {
               fields(first: 50) {
                 nodes {
-                  ... on ProjectV2Field { id name __typename }
+                  ... on ProjectV2Field { id name __typename dataType }
                   ... on ProjectV2IterationField {
                      id name __typename
                      configuration { iterations { id title startDate duration } }
@@ -364,6 +364,7 @@ class GitHubClient:
                     field_details_map[field_name] = {
                         "id": field.get("id"),
                         "type": field.get("__typename"),
+                        "dataType": field.get("dataType"),  # Add dataType for ProjectV2Field
                         "options": options_map,  # Map Name -> ID
                         "iterations": iterations_map,
                     }
@@ -1010,50 +1011,79 @@ class GitHubClient:
             logger.error(f"Cannot update item field: {e}")
             raise
 
-        # Prepare value based on its type and field ID convention
-        # This mapping might need refinement based on actual field types fetched separately
+        # Get field details to determine the correct field type
+        try:
+            field_details = await self.get_project_fields_details(owner, project_number)
+        except GitHubClientError as e:
+            logger.error(f"Cannot get field details for field type detection: {e}")
+            raise
+
+        # Find the field by ID
+        target_field = None
+        for field_name, details in field_details.items():
+            if details.get("id") == field_id:
+                target_field = details
+                break
+
+        if not target_field:
+            raise GitHubClientError(f"Field with ID {field_id} not found in project")
+
+        field_type = target_field.get("type")
+        data_type = target_field.get("dataType")
+        
+        logger.debug(f"Field ID: {field_id}, Type: {field_type}, DataType: {data_type}")
+
+        # Prepare value based on actual field type and dataType
         field_value_input: Dict[str, Any] = {}
 
-        # Heuristic based on ID prefix - A better approach would be to fetch field type first
-        if field_id.startswith("PVTSSF_"):  # Single Select Field (assumed prefix)
+        if field_type == "ProjectV2SingleSelectField":
             if isinstance(value, str):
                 field_value_input = {"singleSelectOptionId": value}
             else:
                 raise GitHubClientError(
                     f"Invalid value type for single select field {field_id}. Expected option ID string."
                 )
-        elif field_id.startswith("PVTIF_"):  # Iteration Field (assumed prefix)
+        elif field_type == "ProjectV2IterationField":
             if isinstance(value, str):
                 field_value_input = {"iterationId": value}
             else:
                 raise GitHubClientError(
                     f"Invalid value type for iteration field {field_id}. Expected iteration ID string."
                 )
-        # Add more field types based on prefixes or fetched field info
-        elif field_id.startswith("PVTF_"):  # Text Field (assumed prefix)
-            if isinstance(value, str):
-                field_value_input = {"text": value}
-            else:  # Attempt to convert
+        elif field_type == "ProjectV2Field":
+            # For ProjectV2Field, use dataType to determine the correct value format
+            if data_type == "TEXT":
                 field_value_input = {"text": str(value)}
-        elif field_id.startswith("PVTDF_"):  # Date Field (assumed prefix)
-            if isinstance(value, str):  # Assuming date string like YYYY-MM-DD
-                field_value_input = {"date": value}
+            elif data_type == "NUMBER":
+                try:
+                    # Convert string numbers to float for GraphQL
+                    if isinstance(value, str):
+                        field_value_input = {"number": float(value)}
+                    elif isinstance(value, (int, float)):
+                        field_value_input = {"number": float(value)}
+                    else:
+                        raise ValueError(f"Cannot convert {value} to number")
+                except (ValueError, TypeError) as e:
+                    raise GitHubClientError(
+                        f"Invalid value for number field {field_id}: {value}. Error: {e}"
+                    )
+            elif data_type == "DATE":
+                if isinstance(value, str):
+                    field_value_input = {"date": value}
+                else:
+                    raise GitHubClientError(
+                        f"Invalid value type for date field {field_id}. Expected date string (YYYY-MM-DD)."
+                    )
             else:
-                raise GitHubClientError(
-                    f"Invalid value type for date field {field_id}. Expected date string (YYYY-MM-DD)."
+                # Unknown dataType, default to text
+                logger.warning(
+                    f"Unknown dataType '{data_type}' for ProjectV2Field {field_id}. Defaulting to text."
                 )
-        elif field_id.startswith("PVTNU_"):  # Number Field (assumed prefix)
-            if isinstance(value, (int, float)):
-                field_value_input = {
-                    "number": float(value)
-                }  # GraphQL uses Float for numbers
-            else:
-                raise GitHubClientError(
-                    f"Invalid value type for number field {field_id}. Expected int or float."
-                )
-        else:  # Default to text if type unknown
+                field_value_input = {"text": str(value)}
+        else:
+            # Unknown field type, default to text
             logger.warning(
-                f"Unknown field type for {field_id}. Attempting to set as text."
+                f"Unknown field type '{field_type}' for {field_id}. Defaulting to text."
             )
             field_value_input = {"text": str(value)}
 
