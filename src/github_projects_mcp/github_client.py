@@ -1240,3 +1240,296 @@ class GitHubClient:
         except GitHubClientError as e:
             logger.error(f"Failed to update project {project_number}: {e}")
             raise
+
+    async def list_repository_milestones(
+        self,
+        owner: str,
+        repo: str,
+        state: Optional[str] = None,
+        sort: Optional[str] = None,
+        direction: Optional[str] = None,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> List[Dict[str, Any]]:
+        """List milestones for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            state: The state of milestones to return ('open', 'closed', 'all')
+            sort: What to sort results by ('due_on', 'completeness')
+            direction: The direction of the sort ('asc', 'desc')
+            per_page: Results per page (max 100)
+            page: Page number of results to fetch
+
+        Returns:
+            List of milestone dictionaries
+
+        Raises:
+            GitHubClientError: If the repository is not found or milestones cannot be retrieved.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/milestones"
+        
+        # Build query parameters
+        params = {}
+        if state:
+            params["state"] = state
+        if sort:
+            params["sort"] = sort
+        if direction:
+            params["direction"] = direction
+        if per_page != 30:
+            params["per_page"] = per_page
+        if page != 1:
+            params["page"] = page
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params=params,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                milestones = response.json()
+                
+                if not isinstance(milestones, list):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return milestones
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error listing milestones for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error listing milestones for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def create_milestone(
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        description: Optional[str] = None,
+        due_on: Optional[str] = None,
+        state: str = "open",
+    ) -> Dict[str, Any]:
+        """Create a milestone for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            title: The title of the milestone
+            description: A description of the milestone
+            due_on: The milestone due date in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+            state: The state of the milestone ('open' or 'closed')
+
+        Returns:
+            The created milestone dictionary
+
+        Raises:
+            GitHubClientError: If the repository is not found or milestone cannot be created.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/milestones"
+        
+        # Build request body
+        body = {"title": title, "state": state}
+        if description:
+            body["description"] = description
+        if due_on:
+            body["due_on"] = due_on
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    json=body,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                milestone = response.json()
+                
+                if not isinstance(milestone, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return milestone
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error creating milestone for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error creating milestone for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_milestone(
+        self,
+        owner: str,
+        repo: str,
+        milestone_number: int,
+    ) -> Dict[str, Any]:
+        """Get a specific milestone for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            milestone_number: The number of the milestone
+
+        Returns:
+            The milestone dictionary
+
+        Raises:
+            GitHubClientError: If the repository or milestone is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/milestones/{milestone_number}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                milestone = response.json()
+                
+                if not isinstance(milestone, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return milestone
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting milestone {milestone_number} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting milestone {milestone_number} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def update_milestone(
+        self,
+        owner: str,
+        repo: str,
+        milestone_number: int,
+        title: Optional[str] = None,
+        state: Optional[str] = None,
+        description: Optional[str] = None,
+        due_on: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a milestone for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            milestone_number: The number of the milestone
+            title: The title of the milestone
+            state: The state of the milestone ('open' or 'closed')
+            description: A description of the milestone
+            due_on: The milestone due date in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+
+        Returns:
+            The updated milestone dictionary
+
+        Raises:
+            GitHubClientError: If the repository or milestone is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/milestones/{milestone_number}"
+        
+        # Build request body with only provided fields
+        body = {}
+        if title is not None:
+            body["title"] = title
+        if state is not None:
+            body["state"] = state
+        if description is not None:
+            body["description"] = description
+        if due_on is not None:
+            body["due_on"] = due_on
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    json=body,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                milestone = response.json()
+                
+                if not isinstance(milestone, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return milestone
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error updating milestone {milestone_number} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error updating milestone {milestone_number} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def delete_milestone(
+        self,
+        owner: str,
+        repo: str,
+        milestone_number: int,
+    ) -> bool:
+        """Delete a milestone for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            milestone_number: The number of the milestone
+
+        Returns:
+            True if deletion was successful
+
+        Raises:
+            GitHubClientError: If the repository or milestone is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/milestones/{milestone_number}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error deleting milestone {milestone_number} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error deleting milestone {milestone_number} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e

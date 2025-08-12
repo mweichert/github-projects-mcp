@@ -448,6 +448,202 @@ async def delete_project_item(owner: str, project_number: int, item_id: str) -> 
         return f"Error: Could not delete item. Details: {e}"
 
 
+# --- Milestone management tools ---
+
+@mcp.tool()
+async def list_repository_milestones(
+    owner: str,
+    repo: str,
+    state: Optional[str] = None,
+    sort: Optional[str] = None,
+    direction: Optional[str] = None,
+    per_page: int = 30,
+    page: int = 1,
+) -> str:
+    """List milestones for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        state: Optional filter by state ('open', 'closed', 'all'). Defaults to 'open'
+        sort: Optional sort field ('due_on', 'completeness'). Defaults to 'due_on'
+        direction: Optional sort direction ('asc', 'desc'). Defaults to 'asc'
+        per_page: Results per page (max 100). Defaults to 30
+        page: Page number of results to fetch. Defaults to 1
+
+    Returns:
+        A formatted string with milestone details
+    """
+    try:
+        milestones = await github_client.list_repository_milestones(
+            owner, repo, state, sort, direction, per_page, page
+        )
+
+        if not milestones:
+            return f"No milestones found for {owner}/{repo}"
+
+        result = f"Milestones for {owner}/{repo}:\n\n"
+        for milestone in milestones:
+            result += f"- Number: {milestone.get('number')}\n"
+            result += f"  Title: {milestone.get('title')}\n"
+            result += f"  State: {milestone.get('state')}\n"
+            result += f"  Description: {milestone.get('description', 'No description')}\n"
+            result += f"  Due Date: {milestone.get('due_on', 'No due date')}\n"
+            result += f"  Open Issues: {milestone.get('open_issues', 0)}\n"
+            result += f"  Closed Issues: {milestone.get('closed_issues', 0)}\n"
+            result += f"  Created: {milestone.get('created_at')}\n"
+            result += f"  Updated: {milestone.get('updated_at')}\n"
+            result += f"  URL: {milestone.get('html_url')}\n"
+            result += "\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error listing milestones for {owner}/{repo}: {e}")
+        return f"Error: Could not list milestones for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def create_milestone(
+    owner: str,
+    repo: str,
+    title: str,
+    description: Optional[str] = None,
+    due_on: Optional[str] = None,
+    state: str = "open",
+) -> str:
+    """Create a milestone for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        title: The title of the milestone
+        description: Optional description of the milestone
+        due_on: Optional milestone due date in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+        state: The state of the milestone ('open' or 'closed'). Defaults to 'open'
+
+    Returns:
+        A formatted string with the created milestone details
+    """
+    try:
+        milestone = await github_client.create_milestone(
+            owner, repo, title, description, due_on, state
+        )
+
+        result = f"Milestone created successfully for {owner}/{repo}!\n\n"
+        result += f"Number: {milestone.get('number')}\n"
+        result += f"Title: {milestone.get('title')}\n"
+        result += f"State: {milestone.get('state')}\n"
+        result += f"Description: {milestone.get('description', 'No description')}\n"
+        result += f"Due Date: {milestone.get('due_on', 'No due date')}\n"
+        result += f"Open Issues: {milestone.get('open_issues', 0)}\n"
+        result += f"Closed Issues: {milestone.get('closed_issues', 0)}\n"
+        result += f"Created: {milestone.get('created_at')}\n"
+        result += f"URL: {milestone.get('html_url')}\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error creating milestone for {owner}/{repo}: {e}")
+        return f"Error: Could not create milestone for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_milestone(owner: str, repo: str, milestone_number: int) -> str:
+    """Get details of a specific milestone for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        milestone_number: The number of the milestone
+
+    Returns:
+        A formatted string with milestone details
+    """
+    try:
+        milestone = await github_client.get_milestone(owner, repo, milestone_number)
+
+        result = f"Milestone #{milestone.get('number')} for {owner}/{repo}:\n\n"
+        result += f"Title: {milestone.get('title')}\n"
+        result += f"State: {milestone.get('state')}\n"
+        result += f"Description: {milestone.get('description', 'No description')}\n"
+        result += f"Due Date: {milestone.get('due_on', 'No due date')}\n"
+        result += f"Open Issues: {milestone.get('open_issues', 0)}\n"
+        result += f"Closed Issues: {milestone.get('closed_issues', 0)}\n"
+        result += f"Created: {milestone.get('created_at')}\n"
+        result += f"Updated: {milestone.get('updated_at')}\n"
+        result += f"URL: {milestone.get('html_url')}\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting milestone {milestone_number} for {owner}/{repo}: {e}")
+        return f"Error: Could not get milestone {milestone_number} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def update_milestone(
+    owner: str,
+    repo: str,
+    milestone_number: int,
+    title: Optional[str] = None,
+    state: Optional[str] = None,
+    description: Optional[str] = None,
+    due_on: Optional[str] = None,
+) -> str:
+    """Update a milestone for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        milestone_number: The number of the milestone to update
+        title: Optional new title of the milestone
+        state: Optional new state of the milestone ('open' or 'closed')
+        description: Optional new description of the milestone
+        due_on: Optional new milestone due date in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+
+    Returns:
+        A formatted string with the updated milestone details
+    """
+    try:
+        milestone = await github_client.update_milestone(
+            owner, repo, milestone_number, title, state, description, due_on
+        )
+
+        result = f"Milestone #{milestone.get('number')} updated successfully for {owner}/{repo}!\n\n"
+        result += f"Title: {milestone.get('title')}\n"
+        result += f"State: {milestone.get('state')}\n"
+        result += f"Description: {milestone.get('description', 'No description')}\n"
+        result += f"Due Date: {milestone.get('due_on', 'No due date')}\n"
+        result += f"Open Issues: {milestone.get('open_issues', 0)}\n"
+        result += f"Closed Issues: {milestone.get('closed_issues', 0)}\n"
+        result += f"Updated: {milestone.get('updated_at')}\n"
+        result += f"URL: {milestone.get('html_url')}\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error updating milestone {milestone_number} for {owner}/{repo}: {e}")
+        return f"Error: Could not update milestone {milestone_number} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def delete_milestone(owner: str, repo: str, milestone_number: int) -> str:
+    """Delete a milestone from a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        milestone_number: The number of the milestone to delete
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        await github_client.delete_milestone(owner, repo, milestone_number)
+
+        return f"Milestone #{milestone_number} deleted successfully from {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error deleting milestone {milestone_number} for {owner}/{repo}: {e}")
+        return f"Error: Could not delete milestone {milestone_number} for {owner}/{repo}. Details: {e}"
+
+
 # --- Helper for updating project item field ---
 # TODO: Add a helper tool to get field details (ID, name, type) to allow
 #       users/LLM to specify fields by name and provide correct value types.
