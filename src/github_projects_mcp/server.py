@@ -305,6 +305,37 @@ async def create_issue(owner: str, repo: str, title: str, body: str = "") -> str
 
 
 @mcp.tool()
+async def delete_issue(owner: str, repo: str, issue_number: int) -> str:
+    """Delete an issue from a GitHub repository.
+
+    ⚠️  CRITICAL WARNING: This action is PERMANENT and cannot be undone. The issue will be 
+    completely removed from the repository and all its history will be lost.
+
+    REQUIREMENTS:
+    - Admin permissions on the repository
+    - Organization must have "issue deletion" enabled (for org repos)
+    - Uses GitHub GraphQL API (deleteIssue mutation)
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        issue_number: The issue number to delete
+
+    Returns:
+        A confirmation message or error details
+    """
+    try:
+        await github_client.delete_issue(owner, repo, issue_number)
+        return (
+            f"Issue #{issue_number} successfully deleted from {owner}/{repo}!\n\n"
+            f"WARNING: This action is permanent and cannot be undone."
+        )
+    except GitHubClientError as e:
+        logger.error(f"Error deleting issue #{issue_number} from {owner}/{repo}: {e}")
+        return f"Error: Could not delete issue #{issue_number} from {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
 async def add_issue_to_project(
     owner: str,
     project_number: int,
