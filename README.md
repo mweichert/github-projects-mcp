@@ -18,9 +18,15 @@ GraphQL API for interacting with GitHub Projects V2.
 This server can be used with any MCP client, such as Claude Desktop. Add it to
 your MCP client configuration (e.g., `claude_desktop_config.json`).
 
-### Option 1: Using Published Package
+### Option 1: Direct Installation from GitHub (Recommended)
 
-Here's an example configuration using `uvx` as the command runner:
+Install directly from this GitHub repository using `uvx`:
+
+```bash
+uvx --from git+https://github.com/mweichert/github-projects-mcp@personal mcp-github-projects
+```
+
+Configure in your MCP client (e.g., `claude_desktop_config.json`):
 
 ```json
 {
@@ -28,6 +34,8 @@ Here's an example configuration using `uvx` as the command runner:
     "github-projects": {
       "command": "uvx",
       "args": [
+        "--from",
+        "git+https://github.com/mweichert/github-projects-mcp@personal",
         "mcp-github-projects"
       ],
       "env": {
@@ -38,8 +46,7 @@ Here's an example configuration using `uvx` as the command runner:
 }
 ```
 
-Make sure to replace `your_pat_here` with your actual GitHub Personal Access
-Token.
+Make sure to replace `your_pat_here` with your actual GitHub Personal Access Token.
 
 ### Option 2: From Source Code
 
@@ -50,7 +57,7 @@ To run the project directly from source code, follow these steps:
 1. Clone the repository:
 
    ```
-   git clone git@github.com:Arclio/github-projects-mcp.git
+   git clone git@github.com:mweichert/github-projects-mcp.git
    cd github-projects-mcp
    ```
 
