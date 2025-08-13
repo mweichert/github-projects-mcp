@@ -684,6 +684,435 @@ async def delete_milestone(owner: str, repo: str, milestone_number: int) -> str:
 #    ...
 
 
+# --- Repository Secrets Management Tools ---
+
+@mcp.tool()
+async def list_repository_actions_secrets(
+    owner: str,
+    repo: str,
+    per_page: int = 30,
+    page: int = 1,
+) -> str:
+    """List Actions secrets for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        per_page: Results per page (max 100). Defaults to 30
+        page: Page number of results to fetch. Defaults to 1
+
+    Returns:
+        A formatted string with Actions secrets details
+    """
+    try:
+        secrets_data = await github_client.list_repository_actions_secrets(owner, repo, per_page, page)
+
+        if not secrets_data or not secrets_data.get("secrets"):
+            return f"No Actions secrets found for {owner}/{repo}"
+
+        result = f"Actions secrets for {owner}/{repo}:\n\n"
+        result += f"Total count: {secrets_data.get('total_count', 0)}\n\n"
+        
+        for secret in secrets_data["secrets"]:
+            result += f"- Name: {secret.get('name')}\n"
+            result += f"  Created: {secret.get('created_at')}\n"
+            result += f"  Updated: {secret.get('updated_at')}\n"
+            result += "\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error listing Actions secrets for {owner}/{repo}: {e}")
+        return f"Error: Could not list Actions secrets for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_repository_actions_secret(owner: str, repo: str, secret_name: str) -> str:
+    """Get details of a specific Actions secret for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret
+
+    Returns:
+        A formatted string with secret details
+    """
+    try:
+        secret = await github_client.get_repository_actions_secret(owner, repo, secret_name)
+
+        result = f"Actions secret '{secret_name}' for {owner}/{repo}:\n\n"
+        result += f"Name: {secret.get('name')}\n"
+        result += f"Created: {secret.get('created_at')}\n"
+        result += f"Updated: {secret.get('updated_at')}\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting Actions secret {secret_name} for {owner}/{repo}: {e}")
+        return f"Error: Could not get Actions secret {secret_name} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_repository_actions_public_key(owner: str, repo: str) -> str:
+    """Get the Actions public key for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+
+    Returns:
+        A formatted string with public key details
+    """
+    try:
+        public_key = await github_client.get_repository_actions_public_key(owner, repo)
+
+        result = f"Actions public key for {owner}/{repo}:\n\n"
+        result += f"Key ID: {public_key.get('key_id')}\n"
+        result += f"Key: {public_key.get('key')[:50]}...\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting Actions public key for {owner}/{repo}: {e}")
+        return f"Error: Could not get Actions public key for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def create_or_update_repository_actions_secret(
+    owner: str, repo: str, secret_name: str, secret_value: str
+) -> str:
+    """Create or update an Actions secret for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret
+        secret_value: The value of the secret (will be encrypted automatically)
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        # Get the public key first
+        public_key_data = await github_client.get_repository_actions_public_key(owner, repo)
+        key_id = public_key_data["key_id"]
+        
+        # Create or update the secret
+        await github_client.create_or_update_repository_actions_secret(
+            owner, repo, secret_name, secret_value, key_id
+        )
+
+        return f"Successfully created or updated Actions secret '{secret_name}' for {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error creating/updating Actions secret {secret_name} for {owner}/{repo}: {e}")
+        return f"Error: Could not create or update Actions secret {secret_name} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def delete_repository_actions_secret(owner: str, repo: str, secret_name: str) -> str:
+    """Delete an Actions secret from a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret to delete
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        await github_client.delete_repository_actions_secret(owner, repo, secret_name)
+
+        return f"Successfully deleted Actions secret '{secret_name}' from {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error deleting Actions secret {secret_name} from {owner}/{repo}: {e}")
+        return f"Error: Could not delete Actions secret {secret_name} from {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def list_repository_codespaces_secrets(
+    owner: str,
+    repo: str,
+    per_page: int = 30,
+    page: int = 1,
+) -> str:
+    """List Codespaces secrets for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        per_page: Results per page (max 100). Defaults to 30
+        page: Page number of results to fetch. Defaults to 1
+
+    Returns:
+        A formatted string with Codespaces secrets details
+    """
+    try:
+        secrets_data = await github_client.list_repository_codespaces_secrets(owner, repo, per_page, page)
+
+        if not secrets_data or not secrets_data.get("secrets"):
+            return f"No Codespaces secrets found for {owner}/{repo}"
+
+        result = f"Codespaces secrets for {owner}/{repo}:\n\n"
+        result += f"Total count: {secrets_data.get('total_count', 0)}\n\n"
+        
+        for secret in secrets_data["secrets"]:
+            result += f"- Name: {secret.get('name')}\n"
+            result += f"  Created: {secret.get('created_at')}\n"
+            result += f"  Updated: {secret.get('updated_at')}\n"
+            if secret.get('visibility'):
+                result += f"  Visibility: {secret.get('visibility')}\n"
+            result += "\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error listing Codespaces secrets for {owner}/{repo}: {e}")
+        return f"Error: Could not list Codespaces secrets for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_repository_codespaces_secret(owner: str, repo: str, secret_name: str) -> str:
+    """Get details of a specific Codespaces secret for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret
+
+    Returns:
+        A formatted string with secret details
+    """
+    try:
+        secret = await github_client.get_repository_codespaces_secret(owner, repo, secret_name)
+
+        result = f"Codespaces secret '{secret_name}' for {owner}/{repo}:\n\n"
+        result += f"Name: {secret.get('name')}\n"
+        result += f"Created: {secret.get('created_at')}\n"
+        result += f"Updated: {secret.get('updated_at')}\n"
+        if secret.get('visibility'):
+            result += f"Visibility: {secret.get('visibility')}\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting Codespaces secret {secret_name} for {owner}/{repo}: {e}")
+        return f"Error: Could not get Codespaces secret {secret_name} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_repository_codespaces_public_key(owner: str, repo: str) -> str:
+    """Get the Codespaces public key for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+
+    Returns:
+        A formatted string with public key details
+    """
+    try:
+        public_key = await github_client.get_repository_codespaces_public_key(owner, repo)
+
+        result = f"Codespaces public key for {owner}/{repo}:\n\n"
+        result += f"Key ID: {public_key.get('key_id')}\n"
+        result += f"Key: {public_key.get('key')[:50]}...\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting Codespaces public key for {owner}/{repo}: {e}")
+        return f"Error: Could not get Codespaces public key for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def create_or_update_repository_codespaces_secret(
+    owner: str, repo: str, secret_name: str, secret_value: str
+) -> str:
+    """Create or update a Codespaces secret for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret
+        secret_value: The value of the secret (will be encrypted automatically)
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        # Get the public key first
+        public_key_data = await github_client.get_repository_codespaces_public_key(owner, repo)
+        key_id = public_key_data["key_id"]
+        
+        # Create or update the secret
+        await github_client.create_or_update_repository_codespaces_secret(
+            owner, repo, secret_name, secret_value, key_id
+        )
+
+        return f"Successfully created or updated Codespaces secret '{secret_name}' for {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error creating/updating Codespaces secret {secret_name} for {owner}/{repo}: {e}")
+        return f"Error: Could not create or update Codespaces secret {secret_name} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def delete_repository_codespaces_secret(owner: str, repo: str, secret_name: str) -> str:
+    """Delete a Codespaces secret from a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret to delete
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        await github_client.delete_repository_codespaces_secret(owner, repo, secret_name)
+
+        return f"Successfully deleted Codespaces secret '{secret_name}' from {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error deleting Codespaces secret {secret_name} from {owner}/{repo}: {e}")
+        return f"Error: Could not delete Codespaces secret {secret_name} from {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def list_repository_dependabot_secrets(
+    owner: str,
+    repo: str,
+    per_page: int = 30,
+    page: int = 1,
+) -> str:
+    """List Dependabot secrets for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        per_page: Results per page (max 100). Defaults to 30
+        page: Page number of results to fetch. Defaults to 1
+
+    Returns:
+        A formatted string with Dependabot secrets details
+    """
+    try:
+        secrets_data = await github_client.list_repository_dependabot_secrets(owner, repo, per_page, page)
+
+        if not secrets_data or not secrets_data.get("secrets"):
+            return f"No Dependabot secrets found for {owner}/{repo}"
+
+        result = f"Dependabot secrets for {owner}/{repo}:\n\n"
+        result += f"Total count: {secrets_data.get('total_count', 0)}\n\n"
+        
+        for secret in secrets_data["secrets"]:
+            result += f"- Name: {secret.get('name')}\n"
+            result += f"  Created: {secret.get('created_at')}\n"
+            result += f"  Updated: {secret.get('updated_at')}\n"
+            result += "\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error listing Dependabot secrets for {owner}/{repo}: {e}")
+        return f"Error: Could not list Dependabot secrets for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_repository_dependabot_secret(owner: str, repo: str, secret_name: str) -> str:
+    """Get details of a specific Dependabot secret for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret
+
+    Returns:
+        A formatted string with secret details
+    """
+    try:
+        secret = await github_client.get_repository_dependabot_secret(owner, repo, secret_name)
+
+        result = f"Dependabot secret '{secret_name}' for {owner}/{repo}:\n\n"
+        result += f"Name: {secret.get('name')}\n"
+        result += f"Created: {secret.get('created_at')}\n"
+        result += f"Updated: {secret.get('updated_at')}\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting Dependabot secret {secret_name} for {owner}/{repo}: {e}")
+        return f"Error: Could not get Dependabot secret {secret_name} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def get_repository_dependabot_public_key(owner: str, repo: str) -> str:
+    """Get the Dependabot public key for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+
+    Returns:
+        A formatted string with public key details
+    """
+    try:
+        public_key = await github_client.get_repository_dependabot_public_key(owner, repo)
+
+        result = f"Dependabot public key for {owner}/{repo}:\n\n"
+        result += f"Key ID: {public_key.get('key_id')}\n"
+        result += f"Key: {public_key.get('key')[:50]}...\n"
+
+        return result
+    except GitHubClientError as e:
+        logger.error(f"Error getting Dependabot public key for {owner}/{repo}: {e}")
+        return f"Error: Could not get Dependabot public key for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def create_or_update_repository_dependabot_secret(
+    owner: str, repo: str, secret_name: str, secret_value: str
+) -> str:
+    """Create or update a Dependabot secret for a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret
+        secret_value: The value of the secret (will be encrypted automatically)
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        # Get the public key first
+        public_key_data = await github_client.get_repository_dependabot_public_key(owner, repo)
+        key_id = public_key_data["key_id"]
+        
+        # Create or update the secret
+        await github_client.create_or_update_repository_dependabot_secret(
+            owner, repo, secret_name, secret_value, key_id
+        )
+
+        return f"Successfully created or updated Dependabot secret '{secret_name}' for {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error creating/updating Dependabot secret {secret_name} for {owner}/{repo}: {e}")
+        return f"Error: Could not create or update Dependabot secret {secret_name} for {owner}/{repo}. Details: {e}"
+
+
+@mcp.tool()
+async def delete_repository_dependabot_secret(owner: str, repo: str, secret_name: str) -> str:
+    """Delete a Dependabot secret from a GitHub repository.
+
+    Args:
+        owner: The GitHub organization or user name
+        repo: The repository name
+        secret_name: The name of the secret to delete
+
+    Returns:
+        A confirmation message
+    """
+    try:
+        await github_client.delete_repository_dependabot_secret(owner, repo, secret_name)
+
+        return f"Successfully deleted Dependabot secret '{secret_name}' from {owner}/{repo}!"
+    except GitHubClientError as e:
+        logger.error(f"Error deleting Dependabot secret {secret_name} from {owner}/{repo}: {e}")
+        return f"Error: Could not delete Dependabot secret {secret_name} from {owner}/{repo}. Details: {e}"
+
+
 # Main entry point function that can be imported
 def main():
     """Main entry point for the GitHub Projects MCP server.

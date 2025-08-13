@@ -2,12 +2,14 @@
 GitHub GraphQL API client for the GitHub Projects V2 MCP Server.
 """
 
+import base64
 import logging
 import os
 import re
 from typing import Any, Dict, List, Optional
 
 import httpx
+from nacl import public, encoding
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,39 @@ class GitHubClient:
             if dict_key and key and dict_key.lower() == key.lower():
                 return dict_key
         return None
+
+    def encrypt_secret_value(self, secret_value: str, public_key: str) -> str:
+        """Encrypt a secret value using LibSodium public key encryption.
+
+        Args:
+            secret_value: The plaintext secret value to encrypt
+            public_key: Base64-encoded public key from GitHub
+
+        Returns:
+            Base64-encoded encrypted value
+
+        Raises:
+            ValueError: If public key is invalid or encryption fails
+        """
+        try:
+            # Decode the base64 public key
+            public_key_bytes = base64.b64decode(public_key)
+            
+            # Create PyNaCl public key object
+            public_key_obj = public.PublicKey(public_key_bytes)
+            
+            # Create sealed box for encryption
+            sealed_box = public.SealedBox(public_key_obj)
+            
+            # Encrypt the secret value
+            encrypted = sealed_box.encrypt(secret_value.encode('utf-8'))
+            
+            # Return base64-encoded encrypted value
+            return base64.b64encode(encrypted).decode('utf-8')
+            
+        except Exception as e:
+            logger.error(f"Failed to encrypt secret value: {e}")
+            raise ValueError(f"Invalid public key format or encryption failed: {e}") from e
 
     async def execute_query(
         self, query: str, variables: Optional[Dict[str, Any]] = None
@@ -1626,3 +1661,798 @@ class GitHubClient:
                 raise GitHubClientError(
                     f"Failed to delete issue #{issue_number} from {owner}/{repo}: {e}"
                 ) from e
+
+    # --- Repository Secrets Management ---
+
+    async def list_repository_actions_secrets(
+        self,
+        owner: str,
+        repo: str,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> Dict[str, Any]:
+        """List Actions secrets for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            per_page: Results per page (max 100)
+            page: Page number of results to fetch
+
+        Returns:
+            Dictionary containing total_count and secrets array
+
+        Raises:
+            GitHubClientError: If the repository is not found or secrets cannot be retrieved.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/secrets"
+        
+        # Build query parameters
+        params = {}
+        if per_page != 30:
+            params["per_page"] = per_page
+        if page != 1:
+            params["page"] = page
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params=params,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                secrets = response.json()
+                
+                if not isinstance(secrets, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return secrets
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error listing Actions secrets for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error listing Actions secrets for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_repository_actions_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+    ) -> Dict[str, Any]:
+        """Get a specific Actions secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+
+        Returns:
+            The secret dictionary
+
+        Raises:
+            GitHubClientError: If the repository or secret is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/secrets/{secret_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                secret = response.json()
+                
+                if not isinstance(secret, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return secret
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting Actions secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting Actions secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_repository_actions_public_key(
+        self,
+        owner: str,
+        repo: str,
+    ) -> Dict[str, Any]:
+        """Get the Actions public key for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+
+        Returns:
+            The public key dictionary with key_id and key
+
+        Raises:
+            GitHubClientError: If the repository is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/secrets/public-key"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                public_key = response.json()
+                
+                if not isinstance(public_key, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return public_key
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting Actions public key for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting Actions public key for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def create_or_update_repository_actions_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+        secret_value: str,
+        key_id: str,
+    ) -> bool:
+        """Create or update an Actions secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+            secret_value: The plaintext secret value (will be encrypted)
+            key_id: The ID of the public key used for encryption
+
+        Returns:
+            True if successful
+
+        Raises:
+            GitHubClientError: If the repository is not found or secret cannot be created.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/secrets/{secret_name}"
+        
+        # Get public key to encrypt the secret
+        try:
+            public_key_data = await self.get_repository_actions_public_key(owner, repo)
+            public_key = public_key_data["key"]
+            
+            # Encrypt the secret value
+            encrypted_value = self.encrypt_secret_value(secret_value, public_key)
+            
+        except Exception as e:
+            error_message = f"Failed to encrypt secret value: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        
+        # Build request body
+        body = {
+            "encrypted_value": encrypted_value,
+            "key_id": key_id
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    json=body,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error creating/updating Actions secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error creating/updating Actions secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def delete_repository_actions_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+    ) -> bool:
+        """Delete an Actions secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+
+        Returns:
+            True if deletion was successful
+
+        Raises:
+            GitHubClientError: If the repository or secret is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/secrets/{secret_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error deleting Actions secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error deleting Actions secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    # --- Codespaces Secrets Management ---
+
+    async def list_repository_codespaces_secrets(
+        self,
+        owner: str,
+        repo: str,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> Dict[str, Any]:
+        """List Codespaces secrets for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            per_page: Results per page (max 100)
+            page: Page number of results to fetch
+
+        Returns:
+            Dictionary containing total_count and secrets array
+
+        Raises:
+            GitHubClientError: If the repository is not found or secrets cannot be retrieved.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/codespaces/secrets"
+        
+        # Build query parameters
+        params = {}
+        if per_page != 30:
+            params["per_page"] = per_page
+        if page != 1:
+            params["page"] = page
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params=params,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                secrets = response.json()
+                
+                if not isinstance(secrets, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return secrets
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error listing Codespaces secrets for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error listing Codespaces secrets for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_repository_codespaces_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+    ) -> Dict[str, Any]:
+        """Get a specific Codespaces secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+
+        Returns:
+            The secret dictionary
+
+        Raises:
+            GitHubClientError: If the repository or secret is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/codespaces/secrets/{secret_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                secret = response.json()
+                
+                if not isinstance(secret, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return secret
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting Codespaces secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting Codespaces secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_repository_codespaces_public_key(
+        self,
+        owner: str,
+        repo: str,
+    ) -> Dict[str, Any]:
+        """Get the Codespaces public key for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+
+        Returns:
+            The public key dictionary with key_id and key
+
+        Raises:
+            GitHubClientError: If the repository is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/codespaces/secrets/public-key"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                public_key = response.json()
+                
+                if not isinstance(public_key, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return public_key
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting Codespaces public key for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting Codespaces public key for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def create_or_update_repository_codespaces_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+        secret_value: str,
+        key_id: str,
+    ) -> bool:
+        """Create or update a Codespaces secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+            secret_value: The plaintext secret value (will be encrypted)
+            key_id: The ID of the public key used for encryption
+
+        Returns:
+            True if successful
+
+        Raises:
+            GitHubClientError: If the repository is not found or secret cannot be created.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/codespaces/secrets/{secret_name}"
+        
+        # Get public key to encrypt the secret
+        try:
+            public_key_data = await self.get_repository_codespaces_public_key(owner, repo)
+            public_key = public_key_data["key"]
+            
+            # Encrypt the secret value
+            encrypted_value = self.encrypt_secret_value(secret_value, public_key)
+            
+        except Exception as e:
+            error_message = f"Failed to encrypt secret value: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        
+        # Build request body
+        body = {
+            "encrypted_value": encrypted_value,
+            "key_id": key_id
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    json=body,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error creating/updating Codespaces secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error creating/updating Codespaces secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def delete_repository_codespaces_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+    ) -> bool:
+        """Delete a Codespaces secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+
+        Returns:
+            True if deletion was successful
+
+        Raises:
+            GitHubClientError: If the repository or secret is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/codespaces/secrets/{secret_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error deleting Codespaces secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error deleting Codespaces secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    # --- Dependabot Secrets Management ---
+
+    async def list_repository_dependabot_secrets(
+        self,
+        owner: str,
+        repo: str,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> Dict[str, Any]:
+        """List Dependabot secrets for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            per_page: Results per page (max 100)
+            page: Page number of results to fetch
+
+        Returns:
+            Dictionary containing total_count and secrets array
+
+        Raises:
+            GitHubClientError: If the repository is not found or secrets cannot be retrieved.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/dependabot/secrets"
+        
+        # Build query parameters
+        params = {}
+        if per_page != 30:
+            params["per_page"] = per_page
+        if page != 1:
+            params["page"] = page
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params=params,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                secrets = response.json()
+                
+                if not isinstance(secrets, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return secrets
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error listing Dependabot secrets for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error listing Dependabot secrets for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_repository_dependabot_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+    ) -> Dict[str, Any]:
+        """Get a specific Dependabot secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+
+        Returns:
+            The secret dictionary
+
+        Raises:
+            GitHubClientError: If the repository or secret is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/dependabot/secrets/{secret_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                secret = response.json()
+                
+                if not isinstance(secret, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return secret
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting Dependabot secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting Dependabot secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def get_repository_dependabot_public_key(
+        self,
+        owner: str,
+        repo: str,
+    ) -> Dict[str, Any]:
+        """Get the Dependabot public key for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+
+        Returns:
+            The public key dictionary with key_id and key
+
+        Raises:
+            GitHubClientError: If the repository is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/dependabot/secrets/public-key"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                public_key = response.json()
+                
+                if not isinstance(public_key, dict):
+                    raise GitHubClientError(f"Unexpected response format from GitHub API")
+                    
+                return public_key
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error getting Dependabot public key for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error getting Dependabot public key for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def create_or_update_repository_dependabot_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+        secret_value: str,
+        key_id: str,
+    ) -> bool:
+        """Create or update a Dependabot secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+            secret_value: The plaintext secret value (will be encrypted)
+            key_id: The ID of the public key used for encryption
+
+        Returns:
+            True if successful
+
+        Raises:
+            GitHubClientError: If the repository is not found or secret cannot be created.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/dependabot/secrets/{secret_name}"
+        
+        # Get public key to encrypt the secret
+        try:
+            public_key_data = await self.get_repository_dependabot_public_key(owner, repo)
+            public_key = public_key_data["key"]
+            
+            # Encrypt the secret value
+            encrypted_value = self.encrypt_secret_value(secret_value, public_key)
+            
+        except Exception as e:
+            error_message = f"Failed to encrypt secret value: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        
+        # Build request body
+        body = {
+            "encrypted_value": encrypted_value,
+            "key_id": key_id
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    json=body,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error creating/updating Dependabot secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error creating/updating Dependabot secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+
+    async def delete_repository_dependabot_secret(
+        self,
+        owner: str,
+        repo: str,
+        secret_name: str,
+    ) -> bool:
+        """Delete a Dependabot secret for a repository using GitHub REST API.
+
+        Args:
+            owner: The GitHub organization or user name
+            repo: The repository name
+            secret_name: The name of the secret
+
+        Returns:
+            True if deletion was successful
+
+        Raises:
+            GitHubClientError: If the repository or secret is not found.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/dependabot/secrets/{secret_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error deleting Dependabot secret {secret_name} for {owner}/{repo}: {e.response.status_code} - {e.response.text}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
+        except Exception as e:
+            error_message = f"Unexpected error deleting Dependabot secret {secret_name} for {owner}/{repo}: {str(e)}"
+            logger.error(error_message)
+            raise GitHubClientError(error_message) from e
